@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
-import requests
+import httpx 
 from bs4 import BeautifulSoup
 import nltk
 from nltk.tokenize import sent_tokenize, word_tokenize
@@ -11,10 +11,11 @@ from heapq import nlargest
 # Download the 'punkt' and 'stopwords' resources
 nltk.download('punkt')
 nltk.download('stopwords')
+
 app = FastAPI()
 
 # Configure CORS settings
-origins = ["*"]  # Replace "*" with the specific origin(s) from which you want to allow requests.
+origins = ["*"]
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,21 +25,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def get_webpage_content(url):
+async def fetch_webpage_content(url):
+    """Fetches the webpage content asynchronously."""
     try:
-        response = requests.get(url)
-        soup = BeautifulSoup(response.text, 'html.parser')
-        # Extract text content from the webpage
-        text = ' '.join([p.get_text() for p in soup.find_all('p')])
-        return text
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, 'html.parser')
+            # Extract text content from all <p> tags
+            text = ' '.join([p.get_text() for p in soup.find_all('p')])
+            return text
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post('/summarize/')
 async def summarize_website(url: str = Form(...)):
     try:
-        webpage_content = get_webpage_content(url)
-        
+        # Fetch the webpage content asynchronously
+        webpage_content = await fetch_webpage_content(url)
+
         # Tokenize the text into sentences and words
         sentences = sent_tokenize(webpage_content)
         words = word_tokenize(webpage_content)
@@ -61,7 +66,6 @@ async def summarize_website(url: str = Form(...)):
                         sentence_scores[sentence] += word_freq[word]
 
         # Get the top N sentences with the highest scores as the summary
-        # Use nlargest to get top N sentences based on their scores
         summary_sentences = nlargest(3, sentence_scores, key=sentence_scores.get)
 
         # Combine the summary sentences into the final summary
